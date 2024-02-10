@@ -6,7 +6,7 @@ const userSchema=new Schema({
     username:{type: String, required: true, unique:true, lowercase:true, trim:true, index:true},
     email:{type: String, required: true, unique:true, lowercase:true, trim:true},
     fullname:{type: String, required: true, lowercase:true, trim:true},
-    avatar:{type: String, required:true },
+    avatar:{type: String , required: true},
     coverImage:{type:String},
     watchHistory:[{type: Schema.Types.ObjectId,ref: "Video"}],
     password:{type:String, required:[true,'password required']},
@@ -34,7 +34,7 @@ userSchema.methods.generateAccessTokens=async function(){
     },
     process.env.ACCESS_TOKEN_SECRET,{expiresIn: process.env.ACCESS_TOKEN_EXPIRY})
 }
-userSchema.methods.RefreshTokens=async function(){
+userSchema.methods.generateRefreshTokens=async function(){
     return await jwt.sign({
          _id:this._id,
          email:this.email,
