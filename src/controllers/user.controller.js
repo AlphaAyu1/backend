@@ -138,7 +138,7 @@ const logOutUser= asyncHandeler(async (req,res)=>{
 const refreshAccessToken=asyncHandeler(async(req,res)=>{
     const incRefToken=req.cookies.refreshToken || req.body.refreshToken
 
-    if (incRefToken) {
+    if (!incRefToken) {
         throw new ApiError(401,"unauth req")
     }
 
@@ -167,5 +167,62 @@ const refreshAccessToken=asyncHandeler(async(req,res)=>{
         throw new ApiError(401,error?.message||"invalid ref token")
     }})
 
+const changeCurrentPassword=asyncHandeler(async(req,res)=>{
+    const{oldPassword, newPassword}=req.body
+    
+    const user=await User.findById(req.user?._id)
+    const isPasswordCorrect=await user.isPasswordCorrect(oldPassword)
 
-export {registerUser, loginUser, logOutUser, refreshAccessToken}
+    if(!isPasswordCorrect){
+        throw new ApiError(400,"invalid password")
+    }
+
+    user.password=newPassword
+    await user.save({validateBeforeSave})
+
+    return res.status(200).json(new ApiResponse(200,{},"Password changed"))
+})
+
+const getCurrentUser=asyncHandeler(async(req,res)=>{
+return res.status(200).json(200, req.user, "current user fetched")
+})
+
+const updateAccountDetails=asyncHandeler(async(req, res)=>{
+    const {fullname, email}=req.body
+
+    if(!fullname || !email){
+        throw new ApiError(400,"all feilds req")
+    }
+
+    const user=User.findByIdAndUpdate(req.user?._id, {
+        $set:{
+            fullname: fullname, email: email
+        }
+    },{new:true})
+    .select("-password")
+
+    return res.status(200).json(new ApiResponse(200,user,"account details successfully updated"))
+})
+
+
+const updateUserAvatar= asyncHandeler(async(req,res)=>{
+    const avatarLocalPath=req.file?.path
+
+    if(!avatarLocalPath){
+        throw new ApiError(400,"avatar is missing")
+    }
+
+    const avatar= await uploadOnCloudinary(avatarLocalPath)
+
+    if(!avatar.url){
+        throw new ApiError(400,"error while uploading avatar")
+    }
+
+    const user =await User.findByIdAndUpdate(req.user?._id,{$set:{
+        avatar: avatar.url
+    }},{new: true} ).select("-password")
+
+    return res.status(200).json(new ApiResponse(200,user,"successfully avatar updated"))
+})
+
+export {registerUser, loginUser, logOutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails,updateUserAvatar}
