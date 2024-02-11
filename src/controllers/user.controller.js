@@ -1,9 +1,10 @@
 import { asyncHandeler } from "../utils/asyncHandeler.js";
 import {ApiError} from "../utils/ApiError.js"
 import {User} from "../models/user.models.js"
-import { uploadOnCloudinary } from "../utils/cloudinary.js"
+import { uploadOnCloudinary , deleteFromCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 
 const generateAccessAndRefreshTokens=async(userId)=>{
@@ -184,7 +185,7 @@ const changeCurrentPassword=asyncHandeler(async(req,res)=>{
 })
 
 const getCurrentUser=asyncHandeler(async(req,res)=>{
-return res.status(200).json(200, req.user, "current user fetched")
+return res.status(200).json(new ApiResponse(200, req.user, "current user fetched"))
 })
 
 const updateAccountDetails=asyncHandeler(async(req, res)=>{
@@ -194,7 +195,7 @@ const updateAccountDetails=asyncHandeler(async(req, res)=>{
         throw new ApiError(400,"all feilds req")
     }
 
-    const user=User.findByIdAndUpdate(req.user?._id, {
+    const user=await User.findByIdAndUpdate(req.user?._id, {
         $set:{
             fullname: fullname, email: email
         }
@@ -204,8 +205,10 @@ const updateAccountDetails=asyncHandeler(async(req, res)=>{
     return res.status(200).json(new ApiResponse(200,user,"account details successfully updated"))
 })
 
-
 const updateUserAvatar= asyncHandeler(async(req,res)=>{
+    const oldUser = await User.findById(req.user?._id)
+    const oldAvatar=oldUser.avatar
+    
     const avatarLocalPath=req.file?.path
 
     if(!avatarLocalPath){
@@ -222,7 +225,103 @@ const updateUserAvatar= asyncHandeler(async(req,res)=>{
         avatar: avatar.url
     }},{new: true} ).select("-password")
 
+    if (oldAvatar) {
+        await deleteFromCloudinary(oldAvatar)
+    }
+
     return res.status(200).json(new ApiResponse(200,user,"successfully avatar updated"))
 })
 
-export {registerUser, loginUser, logOutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails,updateUserAvatar}
+const getUserChannelProfile=asyncHandeler(async(req,res)=>{
+    const {username}=req.params
+
+    if(!username?.trim){
+        throw new ApiError(400,"Username Missing")
+    }
+
+    const channel = await User.aggregate([{
+        $match: {
+            username: username?.toLowerCase()
+        }
+    },{
+        $lookup:{
+            from:"subscriptions",
+            localField:"_id",
+            foreignField:"channel",
+            as:"subscribers"
+        }
+    },{
+        $lookup:{
+            from:"subscriptions",
+            localField:"_id",
+            foreignField:"subscriber",
+            as:"subscribedTo"
+        }
+    },{
+        $addFields:{
+            subsCount:{$size: "$subscribers"},
+            subsTo:{$size: "$subscribedTo"},
+            isSubscribed:{
+                $cond:{
+                    if: {$in:[req.user?._id, "$subscribers.subscriber"]},
+                    then: true,
+                    else: false
+                }
+            }
+        }
+    },{
+        $project:{
+            fullname:1,
+            username:1,
+            subsCount:1,
+            subsTo:1,
+            isSubscribed:1,
+            avatar:1
+        }
+    }
+])
+    if (!channel?.length) {
+        throw new ApiError(400, "no channel found")
+    }
+
+    return res.status(200).json(new ApiResponse(200,channel[0],"User channel fetched"))
+
+})
+
+const getWatchistory=asyncHandeler(async(req,res)=>{
+    const user = await User.aggregate([
+        {
+            $match:{_id: new mongoose.Types.ObjectId(req.user._id)}
+        }
+        ,{
+            $lookup:{from:"videos",local:"watchHistory", foreignField:"_id",as:"watchHistory",
+                    pipeline:[
+                        {
+                            $lookup:{
+                                from:"users",localField:"owner",foreignField:"_id",as:"owner",
+                                pipeline:[{
+                                    $project:{
+                                        fullname:1, username:1, avatar:1
+                                    }
+                                }]
+                            }
+                        },{
+                            $addFields:{
+                                owner:{
+                                    $first:"$owner"
+                                }
+                            }
+                        }
+                    ]
+        }
+        },
+        {
+
+        }
+    ])
+
+    return res.status(200).json(new ApiResponse(200, user[0].watcHistory, "Watch history fetched succesfully"))
+
+})
+
+export {registerUser, loginUser, logOutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails,updateUserAvatar,getUserChannelProfile, getWatchistory}
